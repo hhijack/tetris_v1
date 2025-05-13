@@ -31,4 +31,4 @@ int main() {
 
     return 0;
 }
-//./random_sequence | ./cmake-build-debug/tetris_v3
+//./random_sequence | ./cmake-build-debug/tetris_v2

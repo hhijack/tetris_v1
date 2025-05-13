@@ -119,10 +119,10 @@ int main()
         //printf("这是第%d个方块的放置方式和得分\n", count++);
         fflush(stdout);
 
-        if (state.top >= 16)
-        { // 游戏结束条件
-            break;
-        }
+//        if (state.top >= 16)
+//        { // 游戏结束条件
+//            break;
+//        }
 
         char next_piece_char_input;
         // 如果初始输入只有一个方块，或者第二个字符是 X/E，

@@ -10,8 +10,8 @@ add_executable(test_1 test.c
         strategy.c
         tetris.c
         test.c
-        tetris_v3.c
+        tetris_v2.c
 )
 
 add_executable(tetris_v2 tetris_v2_test.c)
-add_executable(tetris_v3 tetris_v3.c)
+add_executable(tetris_v3 tetris_v2.c)
