@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <time.h>
 
 #define ROWS 20
 #define COLS 10
@@ -49,6 +50,9 @@ int main()
 {
     init_pieces();
     //int count = 0; // 用户用于 "第%d个" 消息的 0 索引计数器
+    // --- 新增：计时器变量 ---
+    clock_t start_time = clock();
+    double time_limit_seconds = 9.8; // 设置一个略小于10秒的限制，以防边界情况
 
     GameState state;
     memset(&state, 0, sizeof(state));
@@ -106,6 +110,18 @@ int main()
 
     while (1)
     {
+        // --- 新增：检查时间限制 ---
+        clock_t current_time = clock();
+        double elapsed_seconds = (double)(current_time - start_time) / CLOCKS_PER_SEC;
+        if (elapsed_seconds > time_limit_seconds) {
+            // printf("时间超出限制 (%.2f 秒)，程序终止。\n", elapsed_seconds); // 调试信息
+            // 根据题目要求，超时不得分，直接退出即可。
+            // 如果需要输出当前分数，可以在这里打印 state.score
+            // printf("%d\n", state.score); // 例如，如果超时也需要输出最后的分数
+            fflush(stdout); // 确保所有缓冲的输出都被打印
+            return 0; // 或者 exit(0);
+        }
+
         Rotation best_rot_val = DEG_0;
         int best_x_val = 0;
         find_best_move(&state, current_piece, next_piece, &best_rot_val, &best_x_val);
