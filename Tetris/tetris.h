@@ -1,16 +1,10 @@
 #ifndef TETRIS_TYPES_H
 #define TETRIS_TYPES_H
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <limits.h>
-#include <math.h>
-
 // 常量定义
 #define ROWS 20
 #define COLS 10
 #define MAX_PIECES 7
+#define SHAPE_DIM 4
 
 // 方块类型枚举
 typedef enum {
@@ -39,14 +33,16 @@ typedef struct {
     int top;              // 当前最高堆积高度
 } GameState;
 
-extern Piece pieces[MAX_PIECES][4]; // 外部声明全局变量
+// 预定义所有方块的所有旋转状态
+extern Piece pieces[MAX_PIECES][4]; // 7 种方块，每种 4 种旋转
 
-void init_pieces(); // 初始化所有方块的旋转状态
+// --- 函数声明 ---
+void init_pieces_definitions(void); // Renamed for clarity
+PieceType char_to_piece(char c); // Renamed
 
-PieceType char_to_piece(char c); // 字符转方块类型
+void select_best_action(GameState *current_board_state, PieceType current_p, PieceType next_p, Rotation *selected_rotation,
+                   int *selected_x_col); // Renamed
+void suicide_place_piece(GameState *state, PieceType type, Rotation *rot, int *x_col); // Added
 
-void init_pieces(); // 初始化所有方块的旋转状态
-
-PieceType char_to_piece(char c); // 字符转方块类型
 
 #endif // TETRIS_TYPES_H

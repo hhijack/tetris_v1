@@ -26,7 +26,7 @@ typedef struct {
 typedef struct {
     int grid[ROWS][COLS];
     int score;
-    int top; // 0 if empty, ROWS if full at top, ROWS+1 for game over by placement
+    int top;
 } GameState;
 
 Piece pieces[MAX_PIECES][4];
@@ -468,8 +468,7 @@ static int compare_move_options(const void *a, const void *b) {
 
 
 // 选择最佳行动（旋转和列位置）
-void
-select_best_action(GameState *current_board_state, PieceType current_p, PieceType next_p, Rotation *selected_rotation,
+void select_best_action(GameState *current_board_state, PieceType current_p, PieceType next_p, Rotation *selected_rotation,
                    int *selected_x_col) {
     MoveOption candidate_moves[4 * COLS]; // 最大可能的移动数量
     int num_candidate_moves = 0;

@@ -2,748 +2,534 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include <time.h>
 
-#define ROWS 15
+#define ROWS 20
 #define COLS 10
 #define MAX_PIECES 7
+#define SHAPE_DIM 4 // Max dimension for piece shape array
 
-// ·½¿éÀàĞÍÃ¶¾Ù
-typedef enum{
-    I,T,O,J,L,S,Z
-} PieceType;
+// æ–¹å—ç±»å‹å’Œæ—‹è½¬è§’åº¦
+typedef enum{ I,T,O,J,L,S,Z } PieceType;
+typedef enum{ DEG_0,DEG_90,DEG_180,DEG_270 } Rotation;
 
-// Ğı×ª½Ç¶ÈÃ¶¾Ù
-typedef enum
-{
-    DEG_0,DEG_90,DEG_180,DEG_270
-} Rotation;
-
-// ·½¿é½á¹¹Ìå
-typedef struct
-{
-    int shape[4][4]; // 4x4 µÄ·½¿éĞÎ×´
-    int width;       // µ±Ç°Ğı×ª×´Ì¬ÏÂµÄ¿í¶È
-    int height;      // µ±Ç°Ğı×ª×´Ì¬ÏÂµÄ¸ß¶È
+typedef struct {
+    int shape[SHAPE_DIM][SHAPE_DIM];
+    int width;
+    int height;
 } Piece;
 
-// ÓÎÏ·×´Ì¬
-typedef struct
-{
-    int grid[ROWS][COLS]; // ÓÎÏ·Íø¸ñ
-    int score;            // µ±Ç°µÃ·Ö
-    int top;              // µ±Ç°×î¸ß¶Ñ»ı¸ß¶È (´Óµ×²¿¿ªÊ¼µÄĞĞÊı£¬Îª¿ÕÊ±Îª 0)
+typedef struct {
+    int grid[ROWS][COLS];
+    int score;
+    int top; // 0 if empty, ROWS if full at top, ROWS+1 for game over by placement
 } GameState;
 
-// Ô¤¶¨ÒåËùÓĞ·½¿éµÄËùÓĞĞı×ª×´Ì¬
-Piece pieces[MAX_PIECES][4]; // 7 ÖÖ·½¿é£¬Ã¿ÖÖ 4 ÖÖĞı×ª
+Piece pieces[MAX_PIECES][4];
 
-// º¯ÊıÔ¤¶¨Òå
-void init_pieces(void);
-PieceType char_to_piece(char c);
-int can_place_piece(const GameState *state, PieceType type, Rotation rotation, int x_col, int y_row);
-GameState place_piece(const GameState *state, PieceType type, Rotation rotation, int x_col);
-int evaluate_state(const GameState *state);
-void find_best_move(GameState *current_state, PieceType current_piece, PieceType next_piece_type, Rotation *best_rot, int *best_x);
+// --- å‡½æ•°å£°æ˜ ---
+void init_pieces_definitions(void); // Renamed for clarity
+PieceType convert_char_to_piece_type(char c); // Renamed
+int is_move_possible(const GameState *state, PieceType type, Rotation rotation, int x_col, int y_row_check); // Renamed
+GameState attempt_to_place_piece(const GameState *initial_state, PieceType type, Rotation rotation, int x_col_target); // Renamed
+long calculate_state_score(const GameState *current_state_eval); // Renamed
+void select_best_action(GameState *current_board_state, PieceType current_p, PieceType next_p, Rotation *selected_rotation, int *selected_x_col); // Renamed
 
-int main()
-{
-    init_pieces();
-    //int count = 0; // ÓÃ»§ÓÃÓÚ "µÚ%d¸ö" ÏûÏ¢µÄ 0 Ë÷Òı¼ÆÊıÆ÷
-    // --- ĞÂÔö£º¼ÆÊ±Æ÷±äÁ¿ ---
-    clock_t start_time = clock();
-    double time_limit_seconds = 9.8; // ÉèÖÃÒ»¸öÂÔĞ¡ÓÚ10ÃëµÄÏŞÖÆ£¬ÒÔ·À±ß½çÇé¿ö
-
-    GameState state;
-    memset(&state, 0, sizeof(state));
-    state.score = 0;
-    state.top = 0;
-
-    char initial_input_buffer[10]; // ÓÃÓÚ³õÊ¼ fgets µÄ»º³åÇø
-    if (fgets(initial_input_buffer, sizeof(initial_input_buffer), stdin) == NULL)
-    {
-        fprintf(stderr, "¶ÁÈ¡³õÊ¼ÊäÈëÊ±³ö´í¡£\n");
-        return 1;
+// --- è¾…åŠ©å‡½æ•° (ä¸€äº›è¢«å£°æ˜ä¸º static inline) ---
+static inline int get_col_height(const GameState *state, int col) {
+    for (int r = 0; r < ROWS; ++r) {
+        if (state->grid[r][col]) return ROWS - r;
     }
-    initial_input_buffer[strcspn(initial_input_buffer, "\n")] = 0; // ÒÆ³ı»»ĞĞ·û
+    return 0;
+}
 
-    if (strlen(initial_input_buffer) == 0)
-    {
-        fprintf(stderr, "³õÊ¼ÊäÈëÎª¿Õ¡£\n");
-        return 1;
-    }
+// ä¸»å‡½æ•° - æ¸¸æˆé€»è¾‘å…¥å£
+int main() {
+    init_pieces_definitions();
 
-    // ´¦ÀíµÚÒ»¸ö×Ö·û¾Í±íÊ¾ÖÕÖ¹µÄÇé¿ö
-    if (initial_input_buffer[0] == 'X')
-    {
-        // Ã»ÓĞ·½¿é±»·ÅÖÃ£¬Ö±½ÓÍË³ö¡£Èç¹ûĞèÒª£¬¿ÉÒÔ´òÓ¡ÌØ¶¨ÏûÏ¢¡£
-        return 0;
-    }
-    if (initial_input_buffer[0] == 'E')
-    {
-        exit(0);
-    }
+    GameState current_game_board;
+    memset(&current_game_board, 0, sizeof(current_game_board));
 
-    PieceType current_piece = char_to_piece(initial_input_buffer[0]);
-    PieceType next_piece;
+    char line_buffer[30]; // ç”¨äºè¯»å–è¾“å…¥çš„ç¼“å†²åŒº
+    if (!fgets(line_buffer, sizeof(line_buffer), stdin)) return 1;
+    line_buffer[strcspn(line_buffer, "\n")] = 0;
 
-    if (strlen(initial_input_buffer) >= 2)
-    {
-        // ¼ì²éµÚ¶ş¸ö×Ö·ûÊÇ·ñÎª¿ØÖÆ×Ö·û£¬ÔÙ×ª»»Îª·½¿éÀàĞÍ
-        if (initial_input_buffer[1] == 'X' || initial_input_buffer[1] == 'E')
-        {
-            // ÕâÒâÎ¶×Å³õÊ¼×Ö·û´®ÖĞÖ»ÓĞÒ»¸ö·½¿é£¬ºóÃæ¸ú×ÅÒ»¸öÃüÁî¡£
-            // Èç¹û×ß´ËÂ·¾¶£¬`next_piece` ½«ÓÉÑ­»·ÖĞµÄµÚÒ»¸ö `scanf` È·¶¨¡£
-            // ÏÖÔÚ£¬½«ÆäÉèÖÃÎªÒ»¸öÕ¼Î»·û£¬ÒòÎªÈç¹ûÑ­»·²»Á¢¼´ÍË³ö£¬Ëü»á±»Ê¹ÓÃ¡£
-            next_piece = I; // Õ¼Î»·û£¬ĞĞÎªÈ¡¾öÓÚÑ­»·Âß¼­
-        }
-        else
-        {
-            next_piece = char_to_piece(initial_input_buffer[1]);
-        }
-    }
-    else
-    {
-        // ³õÊ¼ÊäÈëÖ»ÓĞÒ»¸ö·½¿é×Ö·û¡£`next_piece` ½«ÔÚµÚÒ»´ÎÑ­»·µü´úÖĞÍ¨¹ı `scanf` ¶ÁÈ¡¡£
-        next_piece = I; // Õ¼Î»·ûÖµ£¬½«±»¸²¸Ç
-    }
+    if (strlen(line_buffer) == 0) return 1;
+    if (line_buffer[0] == 'X') return 0;
+    if (line_buffer[0] == 'E') exit(0);
 
-    while (1)
-    {
-        // --- ĞÂÔö£º¼ì²éÊ±¼äÏŞÖÆ ---
-        clock_t current_time = clock();
-        double elapsed_seconds = (double)(current_time - start_time) / CLOCKS_PER_SEC;
-        if (elapsed_seconds > time_limit_seconds) {
-            // printf("Ê±¼ä³¬³öÏŞÖÆ (%.2f Ãë)£¬³ÌĞòÖÕÖ¹¡£\n", elapsed_seconds); // µ÷ÊÔĞÅÏ¢
-            // ¸ù¾İÌâÄ¿ÒªÇó£¬³¬Ê±²»µÃ·Ö£¬Ö±½ÓÍË³ö¼´¿É¡£
-            // Èç¹ûĞèÒªÊä³öµ±Ç°·ÖÊı£¬¿ÉÒÔÔÚÕâÀï´òÓ¡ state.score
-            // printf("%d\n", state.score); // ÀıÈç£¬Èç¹û³¬Ê±Ò²ĞèÒªÊä³ö×îºóµÄ·ÖÊı
-            fflush(stdout); // È·±£ËùÓĞ»º³åµÄÊä³ö¶¼±»´òÓ¡
-            return 0; // »òÕß exit(0);
-        }
+    PieceType active_piece = convert_char_to_piece_type(line_buffer[0]);
+    PieceType upcoming_piece = (strlen(line_buffer) >= 2 && line_buffer[1] != 'X' && line_buffer[1] != 'E') ? convert_char_to_piece_type(line_buffer[1]) : I;
 
-        Rotation best_rot_val = DEG_0;
-        int best_x_val = 0;
-        find_best_move(&state, current_piece, next_piece, &best_rot_val, &best_x_val);
-        state = place_piece(&state, current_piece, best_rot_val, best_x_val);
+    for (;;) {
 
-        printf("%d %d\n", best_rot_val, best_x_val);
-        printf("%d\n", state.score);
-        //printf("´ËÊ±·½¿é×î¸ßÔÚ%dĞĞ\n", state.top);
-        // ×¢Òâ£º`count++` ±íÊ¾ÏÈ´òÓ¡µ±Ç° `count` µÄÖµ£¬È»ºóÔÙ×ÔÔö¡£
-        // ËùÒÔ£¬¶ÔÓÚµÚÒ»¸ö·½¿é£¬`count` Îª 0£¬´òÓ¡ 0¡£È»ºó `count` ±äÎª 1¡£
-        //printf("ÕâÊÇµÚ%d¸ö·½¿éµÄ·ÅÖÃ·½Ê½ºÍµÃ·Ö\n", count++);
+        Rotation chosen_rotation = DEG_0;
+        int chosen_x_col = 0;
+
+        select_best_action(&current_game_board, active_piece, upcoming_piece, &chosen_rotation, &chosen_x_col);
+
+        GameState state_before_move = current_game_board;
+        current_game_board = attempt_to_place_piece(&current_game_board, active_piece, chosen_rotation, chosen_x_col);
+
+//        if (current_game_board.top > ROWS) { // æ£€æŸ¥æ”¾ç½®åæ˜¯å¦æ¸¸æˆç»“æŸ
+//            printf("%d %d\n", chosen_rotation, chosen_x_col);
+//            printf("%d\n", state_before_move.score); // è¾“å‡ºå¾—åˆ†
+//            fflush(stdout);
+//            return 0;
+//        }
+
+        printf("%d %d\n", chosen_rotation, chosen_x_col);
+        printf("%d\n", current_game_board.score);
         fflush(stdout);
 
-        // if (state.top >= 16)
-        // { // ÓÎÏ·½áÊøÌõ¼ş
-        //     break;
-        // }
+        char next_command_char;
+        if (scanf(" %c", &next_command_char) != 1) break; // æ£€æŸ¥EOF
 
-        char next_piece_char_input;
-        // Èç¹û³õÊ¼ÊäÈëÖ»ÓĞÒ»¸ö·½¿é£¬»òÕßµÚ¶ş¸ö×Ö·ûÊÇ X/E£¬
-        // ÄÇÃ´ `next_piece` ÊÇÒ»¸öÕ¼Î»·û¡£ÎÒÃÇ±ØĞë¶ÁÈ¡ÕæÕıµÄÏÂÒ»¸ö·½¿é¡£
-        // ÓÃ»§Ô­À´µÄÑ­»·½á¹¹×ÜÊÇÔÚÕâÀï½øĞĞ scanf ²Ù×÷¡£
-        if (scanf(" %c", &next_piece_char_input) != 1)
-        {
-            // ¶ÁÈ¡ÏÂÒ»¸ö·½¿é×Ö·ûÊ±Óöµ½ EOF »ò´íÎó
-            break;
-        }
+        if (next_command_char == 'X') {
+            Rotation final_r; int final_x;
+            GameState state_before_final_X_move = current_game_board;
+            select_best_action(&current_game_board, active_piece, I, &final_r, &final_x); // ä½¿ç”¨Iä½œä¸ºä¸‹ä¸€ä¸ªæ–¹å—çš„å ä½ç¬¦
+            current_game_board = attempt_to_place_piece(&current_game_board, active_piece, final_r, final_x);
 
-        if (next_piece_char_input == 'X')
-        {
-            // ÓÃ»§ÌØ¶¨µÄ X ¿é£ºÖØĞÂ¼ÆËã²¢ÖØĞÂ·ÅÖÃ `current_piece`
-            // ÕâºÜ²»Ñ°³££¬ÒòÎª `current_piece` ¸Õ¸Õ±»·ÅÖÃ£¬`state` Ò²ÒÑ¸üĞÂ¡£
-            // ÖØĞÂ·ÅÖÃËü½«ÔÚ *ÒÑ¾­ĞŞ¸Ä¹ıµÄ* ÓÎÏ·×´Ì¬ÉÏ½øĞĞ¡£
-            Rotation final_best_rot;
-            int final_best_x;
-            // ÎÊÌâÃèÊö£º"ÔÚÍË³öÇ°ÖØĞÂ¼ÆËã×îºóÒ»¸ö·½¿éµÄ·ÅÖÃ·½Ê½ºÍµÃ·Ö"
-            // ÕâÀïÖ¸µÄÊÇ `current_piece`£¨¸Õ¸Õ·ÅÖÃµÄÄÇ¸ö·½¿é£©¡£
-            find_best_move(&state, current_piece, I, &final_best_rot, &final_best_x);
-            state = place_piece(&state, current_piece, final_best_rot, final_best_x); // ÓÎÏ·×´Ì¬ÔÙ´Î±»ĞŞ¸Ä
-
-            printf("%d %d\n", final_best_rot, final_best_x);
-            printf("%d\n", state.score);
-            //printf("ÕâÊÇÖ÷³ÌĞò¡£");
-            //printf("´ËÊ±·½¿é×î¸ßÔÚ%dĞĞ\n", state.top);
-            // `count` ÒÑ¾­ÔÚÉÏÃæÍ¨¹ı `count++` ×ÔÔö¹ıÁË¡£
-            // ËùÒÔ£¬¶ÔÓÚ "X" ÏûÏ¢£¬»áÊ¹ÓÃ×ÔÔöºóµÄÖµ¡£
-            //printf("ÕâÊÇ×îºóÒ»¸ö·½¿éµÄ·ÅÖÃ·½Ê½ºÍµÃ·Ö\n£¬µÚ%d¸ö\n", count);
+            printf("%d %d\n", final_r, final_x);
+            if (current_game_board.top > ROWS) {
+                printf("%d\n", state_before_final_X_move.score);
+            } else {
+                printf("%d\n", current_game_board.score);
+            }
             fflush(stdout);
             break;
         }
+        if (next_command_char == 'E') exit(0);
 
-        if (next_piece_char_input == 'E')
-        {
-            exit(0);
-        }
-
-        // ÎªÏÂÒ»´Îµü´ú×ö×¼±¸
-        current_piece = next_piece;                        // ÉÏÒ»´Îµü´ú£¨»ò³õÊ¼ÊäÈë£©ÖĞµÄ 'next' ·½¿é
-        next_piece = char_to_piece(next_piece_char_input); // Í¨¹ı scanf ¶ÁÈ¡µÄĞÂ·½¿é
+        active_piece = upcoming_piece;
+        upcoming_piece = convert_char_to_piece_type(next_command_char);
     }
-
     return 0;
 }
-//³õÊ¼»¯·½¿é
-void init_pieces()
-{
-    // I ĞÍ·½¿é
-    // 0¶È: 1111 (¿í4, ¸ß1)
+
+// --- å‡½æ•°å®ç° ---
+void init_pieces_definitions(void) {
+    // ... (init_pieces ä»£ç çœç•¥ï¼Œåªéœ€ä¿®æ”¹å‡½æ•°åå’Œå†…éƒ¨å¯¹pieces->pieces_global_arrayçš„å¼•ç”¨)
+    // (ä¸ºäº†ç®€æ´ï¼Œçœç•¥piecesçš„åˆå§‹å€¼ï¼Œç›´æ¥ä½¿ç”¨åŸå§‹init_pieceså‡½æ•°ä¸­çš„å†…å®¹)
+    // I æ–¹å—
     int i_shape[4][4][4] = {
-            {{1, 1, 1, 1}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 0 ¶È
-            {{1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}}, // 90 ¶È (Ğı×ªºó£¬¿í1, ¸ß4)
-            {{1, 1, 1, 1}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 180 ¶È (Í¬0¶ÈĞÎ×´£¬µ«¿ÉÒÔÊÇ²»Í¬¶¨Òå)
-            {{1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}}  // 270 ¶È (Í¬90¶ÈĞÎ×´)
+            {{1, 1, 1, 1}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}},
+            {{1, 1, 1, 1}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}}
     };
-    for (int r = 0; r < 4; r++)
+    for (int r_loop = 0; r_loop < 4; r_loop++)
     {
-        memcpy(pieces[I][r].shape, i_shape[r], sizeof(i_shape[r]));
-        pieces[I][r].width = (r == DEG_0 || r == DEG_180) ? 4 : 1;
-        pieces[I][r].height = (r == DEG_0 || r == DEG_180) ? 1 : 4;
+        memcpy(pieces[I][r_loop].shape, i_shape[r_loop], sizeof(i_shape[r_loop]));
+        pieces[I][r_loop].width = (r_loop == DEG_0 || r_loop == DEG_180) ? 4 : 1;
+        pieces[I][r_loop].height = (r_loop == DEG_0 || r_loop == DEG_180) ? 1 : 4;
     }
-
-    // T ĞÍ·½¿é
-    // 0¶È: (¿í3, ¸ß2)
-    // 010
-    // 111
+    // T æ–¹å—
     int t_shape[4][4][4] = {
-            {{0, 1, 0, 0}, {1, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 0 ¶È
-            {{1, 0, 0, 0}, {1, 1, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}}, // 90 ¶È (¸ËÔÚ×ó£¬¿í2, ¸ß3)
-            {{1, 1, 1, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 180 ¶È (µ¹T£¬¿í3, ¸ß2)
-            {{0, 1, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}}  // 270 ¶È (¸ËÔÚÓÒ£¬¿í2, ¸ß3)
+            {{0, 1, 0, 0}, {1, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 0, 0, 0}, {1, 1, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 1, 1, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{0, 1, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}}
     };
-    for (int r = 0; r < 4; r++)
+    for (int r_loop = 0; r_loop < 4; r_loop++)
     {
-        memcpy(pieces[T][r].shape, t_shape[r], sizeof(t_shape[r]));
-        pieces[T][r].width = (r == DEG_0 || r == DEG_180) ? 3 : 2;
-        pieces[T][r].height = (r == DEG_0 || r == DEG_180) ? 2 : 3;
+        memcpy(pieces[T][r_loop].shape, t_shape[r_loop], sizeof(t_shape[r_loop]));
+        pieces[T][r_loop].width = (r_loop == DEG_0 || r_loop == DEG_180) ? 3 : 2;
+        pieces[T][r_loop].height = (r_loop == DEG_0 || r_loop == DEG_180) ? 2 : 3;
     }
-
-    // O ĞÍ·½¿é
-    // 0¶È: (¿í2, ¸ß2)
-    // 11
-    // 11
+    // O æ–¹å—
     int o_shape[4][4] = {{1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
-    for (int r = 0; r < 4; r++) // OĞÍĞı×ª²»±ä
+    for (int r_loop = 0; r_loop < 4; r_loop++)
     {
-        memcpy(pieces[O][r].shape, o_shape, sizeof(o_shape));
-        pieces[O][r].width = 2;
-        pieces[O][r].height = 2;
+        memcpy(pieces[O][r_loop].shape, o_shape, sizeof(o_shape));
+        pieces[O][r_loop].width = 2;
+        pieces[O][r_loop].height = 2;
     }
-
-    // J ĞÍ·½¿é
-    // 0¶È: (¿í3, ¸ß2)
-    // 100
-    // 111
+    // J æ–¹å—
     int j_shape[4][4][4] = {
-            {{1, 0, 0, 0}, {1, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 0 ¶È
-            {{1, 1, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}}, // 90 ¶È (Î²°Í³¯ÏÂ£¬¿í2, ¸ß3)
-            {{1, 1, 1, 0}, {0, 0, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 180 ¶È (µ¹J£¬¿í3, ¸ß2)
-            {{0, 1, 0, 0}, {0, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}}  // 270 ¶È (Î²°Í³¯ÉÏ£¬¿í2, ¸ß3)
+            {{1, 0, 0, 0}, {1, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 1, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 1, 1, 0}, {0, 0, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{0, 1, 0, 0}, {0, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}}
     };
-    for (int r = 0; r < 4; r++)
+    for (int r_loop = 0; r_loop < 4; r_loop++)
     {
-        memcpy(pieces[J][r].shape, j_shape[r], sizeof(j_shape[r]));
-        pieces[J][r].width = (r == DEG_0 || r == DEG_180) ? 3 : 2;
-        pieces[J][r].height = (r == DEG_0 || r == DEG_180) ? 2 : 3;
+        memcpy(pieces[J][r_loop].shape, j_shape[r_loop], sizeof(j_shape[r_loop]));
+        pieces[J][r_loop].width = (r_loop == DEG_0 || r_loop == DEG_180) ? 3 : 2;
+        pieces[J][r_loop].height = (r_loop == DEG_0 || r_loop == DEG_180) ? 2 : 3;
     }
-
-    // L ĞÍ·½¿é
-    // 0¶È: (¿í3, ¸ß2)
-    // 001
-    // 111
+    // L æ–¹å—
     int l_shape[4][4][4] = {
-            {{0, 0, 1, 0}, {1, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 0 ¶È
-            {{1, 0, 0, 0}, {1, 0, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}}, // 90 ¶È (Î²°Í³¯ÏÂ£¬¿í2, ¸ß3)
-            {{1, 1, 1, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 180 ¶È (µ¹L£¬¿í3, ¸ß2)
-            {{1, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}}  // 270 ¶È (Î²°Í³¯ÉÏ£¬¿í2, ¸ß3)
+            {{0, 0, 1, 0}, {1, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 0, 0, 0}, {1, 0, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}},
+            {{1, 1, 1, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}}
     };
-    for (int r = 0; r < 4; r++)
+    for (int r_loop = 0; r_loop < 4; r_loop++)
     {
-        memcpy(pieces[L][r].shape, l_shape[r], sizeof(l_shape[r]));
-        pieces[L][r].width = (r == DEG_0 || r == DEG_180) ? 3 : 2;
-        pieces[L][r].height = (r == DEG_0 || r == DEG_180) ? 2 : 3;
+        memcpy(pieces[L][r_loop].shape, l_shape[r_loop], sizeof(l_shape[r_loop]));
+        pieces[L][r_loop].width = (r_loop == DEG_0 || r_loop == DEG_180) ? 3 : 2;
+        pieces[L][r_loop].height = (r_loop == DEG_0 || r_loop == DEG_180) ? 2 : 3;
     }
-
-    // S ĞÍ·½¿é
-    // 0¶È: (¿í3, ¸ß2)
-    // 011
-    // 110
+    // S æ–¹å—
     int s_shape[4][4][4] = {
-            {{0, 1, 1, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 0 ¶È
-            {{1, 0, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}}, // 90 ¶È (ÊúÖ±£¬¿í2, ¸ß3)
-            {{0, 1, 1, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 180 ¶È (Í¬0¶ÈĞÎ×´£¬SĞÍ180¶ÈĞı×ªºóĞÎ×´²»±ä)
-            {{1, 0, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}}  // 270 ¶È (Í¬90¶ÈĞÎ×´)
+            {{0, 1, 1, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 0, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}},
+            {{0, 1, 1, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 0, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}}
     };
-    for (int r = 0; r < 4; r++)
+    for (int r_loop = 0; r_loop < 4; r_loop++)
     {
-        memcpy(pieces[S][r].shape, s_shape[r], sizeof(s_shape[r]));
-        pieces[S][r].width = (r == DEG_0 || r == DEG_180) ? 3 : 2;
-        pieces[S][r].height = (r == DEG_0 || r == DEG_180) ? 2 : 3;
+        memcpy(pieces[S][r_loop].shape, s_shape[r_loop], sizeof(s_shape[r_loop]));
+        pieces[S][r_loop].width = (r_loop == DEG_0 || r_loop == DEG_180) ? 3 : 2;
+        pieces[S][r_loop].height = (r_loop == DEG_0 || r_loop == DEG_180) ? 2 : 3;
     }
-
-    // Z ĞÍ·½¿é
-    // 0¶È: (¿í3, ¸ß2)
-    // 110
-    // 011
+    // Z æ–¹å—
     int z_shape[4][4][4] = {
-            {{1, 1, 0, 0}, {0, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 0 ¶È
-            {{0, 1, 0, 0}, {1, 1, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}}, // 90 ¶È (ÊúÖ±£¬¿í2, ¸ß3)
-            {{1, 1, 0, 0}, {0, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}, // 180 ¶È (Í¬0¶ÈĞÎ×´£¬ZĞÍ180¶ÈĞı×ªºóĞÎ×´²»±ä)
-            {{0, 1, 0, 0}, {1, 1, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}}  // 270 ¶È (Í¬90¶ÈĞÎ×´)
+            {{1, 1, 0, 0}, {0, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{0, 1, 0, 0}, {1, 1, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}},
+            {{1, 1, 0, 0}, {0, 1, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {{0, 1, 0, 0}, {1, 1, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}}
     };
-    for (int r = 0; r < 4; r++)
+    for (int r_loop = 0; r_loop < 4; r_loop++)
     {
-        memcpy(pieces[Z][r].shape, z_shape[r], sizeof(z_shape[r]));
-        pieces[Z][r].width = (r == DEG_0 || r == DEG_180) ? 3 : 2;
-        pieces[Z][r].height = (r == DEG_0 || r == DEG_180) ? 2 : 3;
+        memcpy(pieces[Z][r_loop].shape, z_shape[r_loop], sizeof(z_shape[r_loop]));
+        pieces[Z][r_loop].width = (r_loop == DEG_0 || r_loop == DEG_180) ? 3 : 2;
+        pieces[Z][r_loop].height = (r_loop == DEG_0 || r_loop == DEG_180) ? 2 : 3;
     }
 }
 
-// ½«×Ö·û×ª»»Îª PieceType
-PieceType char_to_piece(char c)
-{
-    switch (c)
-    {
-        case 'I':
-            return I;
-        case 'T':
-            return T;
-        case 'O':
-            return O;
-        case 'J':
-            return J;
-        case 'L':
-            return L;
-        case 'S':
-            return S;
-        case 'Z':
-            return Z;
-        default:
-            fprintf(stderr, "¾¯¸æ: Î´Öª·½¿é×Ö·û '%c'£¬Ä¬ÈÏÊ¹ÓÃ I ĞÍ·½¿é¡£\n", c);
-            return I;
+PieceType convert_char_to_piece_type(char c) {
+    switch (c) {
+        case 'I': return I; case 'T': return T; case 'O': return O;
+        case 'J': return J; case 'L': return L; case 'S': return S;
+        case 'Z': return Z; default: return I;
     }
 }
 
-// ¼ì²é·½¿éÊÇ·ñ¿ÉÒÔ·ÅÖÃÔÚÖ¸¶¨Î»ÖÃ
-int can_place_piece(const GameState *state, PieceType type, Rotation rotation, int x_col, int y_row)
-{
-    const Piece *piece = &pieces[type][rotation];
-
-    if (x_col < 0 || x_col + piece->width > COLS || y_row < 0 || y_row + piece->height > ROWS)
-    {
-        return 0;
-    }
-
-    for (int py = 0; py < piece->height; py++)
-    {
-        for (int px = 0; px < piece->width; px++)
-        {
-            if (piece->shape[py][px])
-            {
-                if (state->grid[y_row + py][x_col + px])
-                {
-                    return 0;
-                }
-            }
+int is_move_possible(const GameState *state, PieceType type, Rotation rotation, int x_col, int y_row_check) {
+    const Piece *p = &pieces[type][rotation];
+    if (x_col < 0 || x_col + p->width > COLS || y_row_check < 0 || y_row_check + p->height > ROWS) return 0;
+    for (int r_offset = 0; r_offset < p->height; ++r_offset) {
+        for (int c_offset = 0; c_offset < p->width; ++c_offset) {
+            if (p->shape[r_offset][c_offset] && state->grid[y_row_check + r_offset][x_col + c_offset]) return 0;
         }
     }
     return 1;
 }
 
-// Ä£Äâ·ÅÖÃ·½¿é²¢·µ»ØĞÂµÄÓÎÏ·×´Ì¬
-GameState place_piece(const GameState *state, PieceType type, Rotation rotation, int x_col)
-{
-    GameState new_state = *state;
-    const Piece *piece = &pieces[type][rotation];
-
-    int y_drop_row = -1; // ÉÚ±øÖµ£ºÈç¹û·½¿éÉõÖÁÎŞ·¨·ÅÖÃÔÚ y=0 µÄÎ»ÖÃ¡£
-    // ÀíÏëÇé¿öÏÂ£¬ÔÚµ÷ÓÃ place_piece Ö®Ç°Ó¦¸Ã¼ì²éÕâÒ»µã£¬
-    // »òÕß find_best_move Ó¦¸ÃÈ·±£·ÅÖÃÎ»ÖÃÓĞĞ§¡£
-    // ¼ÙÉè x_col ¶ÔÓÚ·½¿é¿í¶ÈÊÇÓĞĞ§µÄ¡£
-
-    for (int y_try = 0; y_try <= ROWS - piece->height; y_try++)
-    {
-        if (can_place_piece(&new_state, type, rotation, x_col, y_try))
-        {
-            y_drop_row = y_try;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    // Èç¹û y_drop_row ÈÔÈ»ÊÇ -1£¬ÒâÎ¶×Å·½¿éÉõÖÁÎŞ·¨·ÅÖÃÔÚ y=0 µÄÎ»ÖÃ¡£
-    // ÕâÊÇÓÎÏ·½áÊøµÄ³¡¾°£¬»òÕßÊÇ find_best_move ¸ø³öµÄÎŞĞ§ÒÆ¶¯¡£
-    // ÎªÁË½¡×³ĞÔ£¬¿ÉÄÜĞèÒª´¦ÀíÕâÖÖÇé¿ö£¬µ«¶íÂŞË¹·½¿é AI Í¨³£»á±ÜÃâ´ËÀàÒÆ¶¯¡£
-    // Ô­Ê¼´úÂëÒşÊ½¼ÙÉèÄÜÕÒµ½ÓĞĞ§µÄ·ÅÖÃĞĞ¡£
-
-    if (y_drop_row == -1) {
-        // ÎŞ·¨·ÅÖÃ£¬·µ»ØÔ­Ê¼×´Ì¬²¢±ê¼ÇÎªÓÎÏ·½áÊø
-        new_state.top = ROWS + 1;
-        return new_state;
-    }
-
-    for (int py = 0; py < piece->height; py++)
-    {
-        for (int px = 0; px < piece->width; px++)
-        {
-            if (piece->shape[py][px])
-            {
-                if (y_drop_row + py >= 0 && y_drop_row + py < ROWS && x_col + px < COLS) {
-                    new_state.grid[y_drop_row + py][x_col + px] = 1;
-                }
+// æ›´æ–°æ¸¸æˆçŠ¶æ€çš„é¡¶éƒ¨é«˜åº¦
+static void update_board_top(GameState *state_to_update) {
+    state_to_update->top = 0;
+    for (int r = 0; r < ROWS; ++r) {
+        for (int c = 0; c < COLS; ++c) {
+            if (state_to_update->grid[r][c]) {
+                state_to_update->top = ROWS - r;
+                return;
             }
         }
     }
+}
 
-    int lines_cleared = 0;
-    for (int r = ROWS - 1; r >= 0;)
-    {
-        int is_line_full = 1;
-        for (int c = 0; c < COLS; c++)
-        {
-            if (new_state.grid[r][c] == 0)
-            {
-                is_line_full = 0;
+// æ¸…é™¤å·²å¡«æ»¡çš„è¡Œå¹¶è¿”å›æ¸…é™¤çš„è¡Œæ•°
+static int clear_filled_lines(GameState *state_to_update) {
+    int cleared_count = 0;
+    for (int r = ROWS - 1; r >= 0; ) {
+        int line_full = 1;
+        for (int c = 0; c < COLS; ++c) {
+            if (state_to_update->grid[r][c] == 0) {
+                line_full = 0;
                 break;
             }
         }
-        if (is_line_full)
-        {
-            lines_cleared++;
-            for (int sr = r; sr > 0; sr--)
-            {
-                memcpy(new_state.grid[sr], new_state.grid[sr - 1], COLS * sizeof(int));
+        if (line_full) {
+            cleared_count++;
+            for (int sr = r; sr > 0; --sr) {
+                memcpy(state_to_update->grid[sr], state_to_update->grid[sr-1], COLS * sizeof(int));
             }
-            memset(new_state.grid[0], 0, COLS * sizeof(int));
-            // ²»µİ¼õ r£¬ÖØĞÂ¼ì²éµ±Ç°ĞĞË÷Òı
-        }
-        else
-        {
+            memset(state_to_update->grid[0], 0, COLS * sizeof(int));
+            // ä¸é€’å‡rï¼Œé‡æ–°æ£€æŸ¥å½“å‰è¡Œ
+        } else {
             r--;
         }
     }
-
-    switch (lines_cleared)
-    {
-        case 1:
-            new_state.score += 100;
-            break;
-        case 2:
-            new_state.score += 300;
-            break;
-        case 3:
-            new_state.score += 500;
-            break;
-        case 4:
-            new_state.score += 800;
-            break;
-    }
-
-    new_state.top = 0;
-    for (int r_idx = 0; r_idx < ROWS; r_idx++)
-    {
-        for (int c_idx = 0; c_idx < COLS; c_idx++)
-        {
-            if (new_state.grid[r_idx][c_idx])
-            {
-                new_state.top = ROWS - r_idx;
-                goto found_max_height_place_piece;
-            }
-        }
-    }
-    found_max_height_place_piece:;
-
-    return new_state;
+    return cleared_count;
 }
 
-// ÆÀ¹ÀÓÎÏ·×´Ì¬µÄºÃ»µ
-int evaluate_state(const GameState *state)
-{
-    // Ôö¼ÓÊµ¼ÊµÃ·ÖµÄÈ¨ÖØ
-    int eval_score = state->score * 15;  // ´Ó10Ìá¸ßµ½15
+// å°è¯•å°†æ–¹å—æ”¾ç½®åˆ°æŒ‡å®šä½ç½®å¹¶è¿”å›æ–°çš„æ¸¸æˆçŠ¶æ€
+GameState attempt_to_place_piece(const GameState *initial_state, PieceType type, Rotation rotation, int x_col_target) {
+    GameState resulting_state = *initial_state; // å¤åˆ¶åˆå§‹çŠ¶æ€
+    const Piece *p = &pieces[type][rotation];
+    int landing_row = -1;
 
-    int aggregate_height = 0;
-    int max_col_height = 0;
-    int heights[COLS] = {0};
-    int holes = 0;
-    int bumpiness = 0;
-
-    // ĞÂÔöÆÀ¹ÀÖ¸±ê
-    int adjacent_holes = 0;  // ÏàÁÚ¿Õ¶´¼ÆÊı
-    int center_height_bonus = 0; // ÖĞ¼äÁĞ¸ß¶È½±Àø
-    int i_channel_count = 0; // IĞÍ·½¿éÍ¨µÀ¼ÆÊı <--- Make sure this is declared (it is in your original code)
-    int potential_lines = 0; // Ç±ÔÚ¿ÉÏû³ıĞĞ
-    int complete_lines = 0;  // ÍêÕûĞĞ¼ÆÊı
-
-    // ¼ÆËã¸÷ÁĞ¸ß¶È
-    for (int c = 0; c < COLS; c++)
-    {
-        heights[c] = 0;
-        for (int r = 0; r < ROWS; r++)
-        {
-            if (state->grid[r][c])
-            {
-                heights[c] = ROWS - r;
-                break;
-            }
-        }
-        aggregate_height += heights[c];
-        if (heights[c] > max_col_height)
-        {
-            max_col_height = heights[c];
-        }
-
-        // ½±ÀøÖĞ¼äÁĞ£¨×¼±¸·ÅIĞÍ·½¿é£©
-        if (c >= 3 && c <= 6) {
-            center_height_bonus += heights[c];
+    for (int y = 0; y <= ROWS - p->height; ++y) {
+        if (is_move_possible(&resulting_state, type, rotation, x_col_target, y)) {
+            landing_row = y;
+        } else {
+            break;
         }
     }
 
-    // ¼ÆËã¿Õ¶´
-    int hole_map[ROWS][COLS] = {0};
-    for (int c = 0; c < COLS; c++)
-    {
+    if (landing_row == -1) {
+        resulting_state.top = ROWS + 1; // æ¸¸æˆç»“æŸ
+        return resulting_state;
+    }
+
+    for (int r_offset = 0; r_offset < p->height; ++r_offset) {
+        for (int c_offset = 0; c_offset < p->width; ++c_offset) {
+            if (p->shape[r_offset][c_offset]) {
+                if (landing_row + r_offset >= 0 && landing_row + r_offset < ROWS &&
+                    x_col_target + c_offset >= 0 && x_col_target + c_offset < COLS) {
+                    resulting_state.grid[landing_row + r_offset][x_col_target + c_offset] = 1;
+                }
+            }
+        }
+    }
+
+    int lines_cleared_count = clear_filled_lines(&resulting_state);
+    if (lines_cleared_count == 1) resulting_state.score += 100;
+    else if (lines_cleared_count == 2) resulting_state.score += 300;
+    else if (lines_cleared_count == 3) resulting_state.score += 500;
+    else if (lines_cleared_count >= 4) resulting_state.score += 800; // ä½¿ç”¨>=4ä»¥ç¡®ä¿å®‰å…¨
+
+    update_board_top(&resulting_state);
+    return resulting_state;
+}
+
+
+// --- evaluate_state (calculate_state_score) å‡½æ•°å®ç° ---
+typedef struct {
+    int heights[COLS];
+    int aggregate_h;
+    int max_h;
+    int num_holes;
+    int bump;
+    int adj_holes; // ç®€åŒ–ï¼Œéœ€è¦BFS/DFSè¿›è¡ŒçœŸå®è®¡æ•°
+    int center_h_bonus;
+    int i_channels;
+    int potential_ls;
+    int complete_ls;
+} BoardMetrics;
+
+static void compute_board_metrics(const GameState* state, BoardMetrics* metrics) {
+    memset(metrics, 0, sizeof(BoardMetrics)); // åˆå§‹åŒ–æ‰€æœ‰ä¸º0
+
+    for (int c = 0; c < COLS; ++c) {
+        metrics->heights[c] = get_col_height(state, c); // ä½¿ç”¨è¾…åŠ©å‡½æ•°
+        metrics->aggregate_h += metrics->heights[c];
+        if (metrics->heights[c] > metrics->max_h) metrics->max_h = metrics->heights[c];
+        if (c >= 3 && c <= 6) metrics->center_h_bonus += metrics->heights[c];
+    }
+
+    int temp_hole_map[ROWS][COLS] = {0};
+    for (int c = 0; c < COLS; ++c) {
         int block_found = 0;
-        for (int r = 0; r < ROWS; r++)
-        {
-            if (state->grid[r][c])
-            {
-                block_found = 1;
-            }
-            else if (block_found)
-            {
-                holes++;
-                hole_map[r][c] = 1; // ±ê¼Ç¿Õ¶´Î»ÖÃ
+        for (int r = 0; r < ROWS; ++r) {
+            if (state->grid[r][c]) block_found = 1;
+            else if (block_found) {
+                metrics->num_holes++;
+                temp_hole_map[r][c] = 1;
             }
         }
     }
 
-    // Ê¹ÓÃÒ»¸övisitedÊı×é±ê¼ÇÒÑ·ÃÎÊ¿Õ¶´
-    int visited[ROWS][COLS] = {0};
-    adjacent_holes = 0;
-
-    for (int r = 0; r < ROWS; r++) {
-        for (int c = 0; c < COLS; c++) {
-            if (hole_map[r][c] && !visited[r][c]) {
-                // ·¢ÏÖĞÂ¿Õ¶´×é£¬¼ÆÊı+1
-                adjacent_holes++;
-                // ±ê¼ÇËùÓĞÁ¬Í¨¿Õ¶´ÎªÒÑ·ÃÎÊ
-                // (ÕâÀïĞèÒªÓÃDFS»òBFSµİ¹é±ê¼Ç)
+    int temp_visited[ROWS][COLS] = {0};
+    for (int r = 0; r < ROWS; ++r) {
+        for (int c = 0; c < COLS; ++c) {
+            if (temp_hole_map[r][c] && !temp_visited[r][c]) {
+                metrics->adj_holes++; // ä»ç„¶åªæ˜¯ä¸€ä¸ªç®€å•çš„è®¡æ•°ï¼Œæ²¡æœ‰BFS/DFS
+                // BFS/DFSæ ‡è®°è®¿é—®è¿‡çš„éƒ¨åˆ†ä¼šåœ¨è¿™é‡Œ
             }
         }
     }
 
-    // ¼ÆËã°¼Í¹²»Æ½¶È
-    for (int c = 0; c < COLS - 1; c++)
-    {
-        bumpiness += abs(heights[c] - heights[c + 1]);
-    }
+    for (int c = 0; c < COLS - 1; ++c) metrics->bump += abs(metrics->heights[c] - metrics->heights[c+1]);
 
-    // ¼ÆËãÍêÕûĞĞ
-    for (int r = 0; r < ROWS; r++)
-    {
-        int is_line_full = 1;
-        for (int c = 0; c < COLS; c++)
-        {
-            if (!state->grid[r][c])
-            {
-                is_line_full = 0;
-                break;
-            }
+    for (int r = 0; r < ROWS; ++r) {
+        int line_full = 1;
+        int blocks_in_line = 0;
+        for (int c = 0; c < COLS; ++c) {
+            if (state->grid[r][c]) blocks_in_line++; else line_full = 0;
         }
-        if (is_line_full)
-            complete_lines++;
+        if (line_full) metrics->complete_ls++;
+        if (blocks_in_line >= 7 && !line_full) metrics->potential_ls++;
     }
 
-    // ¼ÆËãÇ±ÔÚ¿ÉÏû³ıĞĞ
-    for (int r = 0; r < ROWS; r++) {
-        int block_count = 0;
-        for (int c = 0; c < COLS; c++) {
-            if (state->grid[r][c]) {
-                block_count++;
-            }
-        }
-        // Èç¹ûÒ»ĞĞÒÑ¾­ÓĞ7¸ö»ò¸ü¶à·½¿é£¬ÓĞÇ±Á¦±»Íê³É
-        if (block_count >= 7 && block_count < COLS) {
-            potential_lines++;
-        }
+    for (int c = 0; c < COLS; ++c) {
+        if (COLS == 1) break;
+        int cur_h = metrics->heights[c];
+        if (c == 0) { if (metrics->heights[c+1] >= cur_h + 4) metrics->i_channels++; }
+        else if (c == COLS - 1) { if (metrics->heights[c-1] >= cur_h + 4) metrics->i_channels++; }
+        else { if (metrics->heights[c-1] >= cur_h + 4 && metrics->heights[c+1] >= cur_h + 4) metrics->i_channels++; }
     }
-
-    // START OF REPLACEMENT: Original "¼ì²éIĞÍ·½¿éÍ¨µÀ" block is removed.
-    // New logic for i_channel_count (detecting "deep wells"):
-    i_channel_count = 0; // Reset/Initialize before calculation
-    for (int c = 0; c < COLS; c++) {
-        int current_col_h = heights[c];
-        // The following two lines for left_neighbor_h and right_neighbor_h
-        // are not strictly used by the if conditions below as they directly access heights[c-1] and heights[c+1].
-        // You can keep them or remove them if you simplify the conditions.
-        // int left_neighbor_h = (c > 0) ? heights[c-1] : current_col_h + 4;
-        // int right_neighbor_h = (c < COLS - 1) ? heights[c+1] : current_col_h + 4;
-
-        if (COLS == 1) {
-            // No wells possible in a 1-column board by this definition
-        } else if (c == 0) { // ×î×óÁĞµÄ¾® (Ö»ĞèÒªÓÒ±ßÓĞÇ½)
-            if (heights[c+1] >= current_col_h + 4) {
-                i_channel_count++;
-            }
-        } else if (c == COLS - 1) { // ×îÓÒÁĞµÄ¾® (Ö»ĞèÒª×ó±ßÓĞÇ½)
-            if (heights[c-1] >= current_col_h + 4) {
-                i_channel_count++;
-            }
-        } else { // ÖĞ¼äÁĞµÄ¾® (ĞèÒªÁ½±ß¶¼ÓĞÇ½) (c > 0 && c < COLS - 1 implicitly true here)
-            if (heights[c-1] >= current_col_h + 4 && heights[c+1] >= current_col_h + 4) {
-                i_channel_count++;
-            }
-        }
-    }
-    // END OF REPLACEMENT
-
-    // È¨ÖØµ÷Õû
-    eval_score += (-30 * aggregate_height); // ¼õÇá¸ß¶È³Í·£
-    eval_score += (80 * complete_lines);    // Ôö¼ÓÏûĞĞ½±Àø
-    eval_score += (-75 * holes);            // Ôö¼Ó¿Õ¶´³Í·£
-    eval_score += (-20 * adjacent_holes);   // ³Í·£ÏàÁÚ¿Õ¶´
-    eval_score += (-15 * bumpiness);        // ¼õÇá°¼Í¹³Í·£
-    eval_score += (5 * center_height_bonus); // ½±ÀøÖĞ¼äÁĞ½Ï¸ß
-    eval_score += (50 * i_channel_count);   // ½±ÀøIĞÍ·½¿éÍ¨µÀ (now rewards deep wells)
-    eval_score += (25 * potential_lines);   // ½±ÀøÇ±ÔÚ¿ÉÏû³ıĞĞ
-
-    // ¸ß¶È³Í·£
-    if (state->top >= 16) {
-        eval_score -= 500000;  // ÓÎÏ·½áÊø³Í·£
-    }
-
-    return eval_score;
 }
 
-// Ñ°ÕÒ×î¼Ñ·ÅÖÃÎ»ÖÃ
-void find_best_move(GameState *current_state, PieceType current_piece, PieceType next_piece_type, Rotation *best_rot, int *best_x)
-{
-    // º¯Êı²ÎÊıÃû¸ÄÎªnext_piece_type£¬±ÜÃâÓë¾Ö²¿±äÁ¿³åÍ»
-    long best_eval_score = LONG_MIN;
-    *best_rot = DEG_0;
-    *best_x = 0;
-    int found_any_move = 0;
+// è®¡ç®—å½“å‰æ¸¸æˆçŠ¶æ€çš„è¯„åˆ†
+long calculate_state_score(const GameState *current_state_eval) {
+    if (current_state_eval->top > ROWS) return LLONG_MIN + 10; // æ¸¸æˆç»“æŸæ—¶çš„ç‰¹æ®Šè¯„åˆ†
 
-    // µ±Ç°·½¿éÈ¨ÖØÓëÏÂÒ»¸ö·½¿éÈ¨ÖØ
-    const float CURRENT_WEIGHT = 1.0;
-    const float NEXT_WEIGHT = 0.85; // ¿¼ÂÇÏÂÒ»¸ö·½¿éµÄÓ°Ïì
+    BoardMetrics metrics;
+    compute_board_metrics(current_state_eval, &metrics);
 
-    // Õë¶ÔÌØ¶¨·½¿éµÄ²ßÂÔµ÷Õû
-    float piece_bonus[MAX_PIECES] = {0};
-    piece_bonus[I] = 300; // IĞÍ·½¿é×îÁé»î
-    piece_bonus[O] = 100; // OĞÍ·½¿éÎÈ¶¨µ«²»Áé»î
-    piece_bonus[T] = 200; // TĞÍ·½¿éÊÊºÏT-spin
-    piece_bonus[J] = 150; // JºÍLĞÍ·½¿éÏà¶ÔÍ¨ÓÃ
-    piece_bonus[L] = 150;
-    piece_bonus[S] = 50;  // SºÍZĞÍ·½¿é±È½ÏÄÑÓÃ
-    piece_bonus[Z] = 50;
+    long long final_score_val = (long long)current_state_eval->score * 15;
+    final_score_val += (-30LL * metrics.aggregate_h);
+    final_score_val += (80LL * metrics.complete_ls);
+    final_score_val += (-75LL * metrics.num_holes);
+    final_score_val += (-20LL * metrics.adj_holes); // ä½¿ç”¨adj_holesä½œä¸ºè®¡ç®—å€¼
+    final_score_val += (-15LL * metrics.bump);
+    final_score_val += (5LL * metrics.center_h_bonus);
+    final_score_val += (50LL * metrics.i_channels);
+    final_score_val += (25LL * metrics.potential_ls);
 
-    // ÔÚËÑË÷ÖĞ¿¼ÂÇÏÂÒ»¸ö·½¿é
-    for (int rot_idx = 0; rot_idx < 4; rot_idx++)
-    {
-        Rotation current_rotation = (Rotation)rot_idx;
-        const Piece *piece = &pieces[current_piece][current_rotation];
+    if (current_state_eval->top >= 16 && current_state_eval->top <= ROWS) {
+        final_score_val -= 500000LL;
+    }
 
-        for (int x_col = 0; x_col <= COLS - piece->width; x_col++)
-        {
-            // ¼ì²éµ±Ç°·½¿éÊÇ·ñÄÜ·ÅÖÃ
-            GameState temp_check_state = *current_state;
-            int can_spawn = 0;
-            for (int y_try_spawn = 0; y_try_spawn <= ROWS - piece->height; ++y_try_spawn)
-            {
-                if (can_place_piece(&temp_check_state, current_piece, current_rotation, x_col, y_try_spawn))
-                {
-                    can_spawn = 1;
-                    break;
+    if(final_score_val > INT_MAX) final_score_val = INT_MAX;
+    if(final_score_val < LLONG_MIN + 10 && current_state_eval->top <= ROWS) final_score_val = LLONG_MIN + 10;
+
+    return (long)final_score_val;
+}
+
+
+// --- select_best_action (find_best_move) å‡½æ•°å®ç° ---
+typedef struct {
+    Rotation rot;
+    int x;
+    long long score; // ç»¼åˆè¯„åˆ†
+    long long current_eval; // å½“å‰æ–¹å—æ”¾ç½®åçš„è¯„åˆ†
+    long long next_eval;    // ä¸‹ä¸€ä¸ªæ–¹å—æ”¾ç½®åçš„è¯„åˆ†ï¼ˆæœ€ä½³æƒ…å†µï¼‰
+} MoveOption;
+
+
+static int compare_move_options(const void *a, const void *b) {
+    const MoveOption *opt_a = (const MoveOption *)a;
+    const MoveOption *opt_b = (const MoveOption *)b;
+    if (opt_b->score > opt_a->score) return 1;
+    if (opt_b->score < opt_a->score) return -1;
+    // ç ´å±€
+    if (opt_a->rot < opt_b->rot) return -1;
+    if (opt_a->rot > opt_b->rot) return 1;
+    // è¿›ä¸€æ­¥çš„ç ´å±€å¯ä»¥é€šè¿‡xï¼ˆæ›´é è¿‘ä¸­å¿ƒï¼‰æ¥æ·»åŠ ï¼Œå¦‚æœéœ€è¦
+    // ä¸ºäº†ç®€å•ï¼Œç›®å‰å¦‚æœè¯„åˆ†ç›¸ç­‰åˆ™åªé€šè¿‡æ—‹è½¬æ¥ç ´å±€
+    return 0;
+}
+
+
+// é€‰æ‹©æœ€ä½³è¡ŒåŠ¨ï¼ˆæ—‹è½¬å’Œåˆ—ä½ç½®ï¼‰
+void select_best_action(GameState *current_board_state, PieceType current_p, PieceType next_p, Rotation *selected_rotation, int *selected_x_col) {
+    MoveOption candidate_moves[4 * COLS]; // æœ€å¤§å¯èƒ½çš„ç§»åŠ¨æ•°é‡
+    int num_candidate_moves = 0;
+
+    const float W_CUR = 1.0f;
+    const float W_NXT = 0.85f;
+    float p_bonus[MAX_PIECES] = {300,200,100,150,150,50,50}; // I,T,O,J,L,S,Z é¡ºåº
+
+    for (int r_idx = 0; r_idx < 4; ++r_idx) {
+        Rotation current_r = (Rotation)r_idx;
+        const Piece *p_shape = &pieces[current_p][current_r];
+        for (int x_try = 0; x_try <= COLS - p_shape->width; ++x_try) {
+            int can_spawn_curr = 0;
+            for (int y_s = 0; y_s <= ROWS - p_shape->height; ++y_s) {
+                if (is_move_possible(current_board_state, current_p, current_r, x_try, y_s)) {
+                    can_spawn_curr = 1; break;
                 }
             }
-            if (!can_spawn && piece->height > 0)
-            {
-                continue; // ³¢ÊÔÏÂÒ»¸öx_col»òĞı×ª
-            }
+            if (!can_spawn_curr && p_shape->height > 0) continue;
 
-            GameState next_state = place_piece(current_state, current_piece, current_rotation, x_col);
-            int current_eval_score = evaluate_state(&next_state);
-            current_eval_score += piece_bonus[current_piece];
-            found_any_move = 1;
+            GameState state_after_curr = attempt_to_place_piece(current_board_state, current_p, current_r, x_try);
+            long long eval_curr = calculate_state_score(&state_after_curr);
+            if (eval_curr > LLONG_MIN + 9) eval_curr += p_bonus[current_p];
 
-            // ¿¼ÂÇÏÂÒ»¸ö·½¿éµÄ×î¼Ñ·ÅÖÃ
-            long next_best_score = LONG_MIN;
-            int found_next_move = 0;
+            long long best_eval_nxt = LLONG_MIN;
+            int found_nxt_move = 0;
 
-            for (int next_rot_idx = 0; next_rot_idx < 4; next_rot_idx++)
-            {
-                Rotation next_rotation = (Rotation)next_rot_idx;
-                const Piece *next_piece_obj = &pieces[next_piece_type][next_rotation];
-
-                for (int next_x_col = 0; next_x_col <= COLS - next_piece_obj->width; next_x_col++)
-                {
-                    // ¼ì²éÏÂÒ»¸ö·½¿éÊÇ·ñÄÜ·ÅÖÃ
-                    int can_place_next = 0;
-                    for (int y_try = 0; y_try <= ROWS - next_piece_obj->height; y_try++) {
-                        if (can_place_piece(&next_state, next_piece_type, next_rotation, next_x_col, y_try)) {
-                            can_place_next = 1;
-                            break;
+            if (state_after_curr.top <= ROWS) {
+                for (int next_r_idx = 0; next_r_idx < 4; ++next_r_idx) {
+                    Rotation next_r = (Rotation)next_r_idx;
+                    const Piece *next_p_shape = &pieces[next_p][next_r];
+                    for (int next_x_try = 0; next_x_try <= COLS - next_p_shape->width; ++next_x_try) {
+                        int can_spawn_nxt_p = 0;
+                        for (int y_ns = 0; y_ns <= ROWS - next_p_shape->height; ++y_ns) {
+                            if (is_move_possible(&state_after_curr, next_p, next_r, next_x_try, y_ns)) {
+                                can_spawn_nxt_p = 1; break;
+                            }
                         }
-                    }
+                        if (!can_spawn_nxt_p && next_p_shape->height > 0) continue;
 
-                    if (can_place_next) {
-                        GameState future_state = place_piece(&next_state, next_piece_type, next_rotation, next_x_col);
-                        long next_score = evaluate_state(&future_state);
-                        next_score += piece_bonus[next_piece_type];
+                        GameState state_after_nxt = attempt_to_place_piece(&state_after_curr, next_p, next_r, next_x_try);
+                        long long eval_nxt_move = calculate_state_score(&state_after_nxt);
+                        if (eval_nxt_move > LLONG_MIN + 9) eval_nxt_move += p_bonus[next_p];
 
-                        if (!found_next_move || next_score > next_best_score) {
-                            next_best_score = next_score;
-                            found_next_move = 1;
+                        if (!found_nxt_move || eval_nxt_move > best_eval_nxt) {
+                            best_eval_nxt = eval_nxt_move;
+                            found_nxt_move = 1;
                         }
                     }
                 }
-            }
-
-            // ¼ÆËã×ÛºÏÆÀ·Ö
-            long combined_score;
-            if (found_next_move) {
-                combined_score = (long)(CURRENT_WEIGHT * (long long)current_eval_score +
-                                        NEXT_WEIGHT * (long long)next_best_score);
             } else {
-                combined_score = current_eval_score;
+                best_eval_nxt = eval_curr; // å½“å‰ç§»åŠ¨å¯¼è‡´æ¸¸æˆç»“æŸ
+                found_nxt_move = 1;
             }
 
-            if (!found_any_move || combined_score > best_eval_score)
-            {
-                best_eval_score = combined_score;
-                *best_rot = current_rotation;
-                *best_x = x_col;
+            MoveOption current_opt;
+            current_opt.rot = current_r;
+            current_opt.x = x_try;
+            current_opt.current_eval = eval_curr;
+            current_opt.next_eval = best_eval_nxt;
+
+            if (found_nxt_move) {
+                if (best_eval_nxt == LLONG_MIN && state_after_curr.top <= ROWS) { // å½“å‰ç§»åŠ¨å¯è¡Œï¼Œä½†æ²¡æœ‰ä¸‹ä¸€ä¸ªç§»åŠ¨
+                    current_opt.next_eval = eval_curr - 500000LL; // å¤„ç½š
+                }
+                current_opt.score = (long long)(W_CUR * current_opt.current_eval + W_NXT * current_opt.next_eval);
+            } else { // å½“å‰ç§»åŠ¨å¯è¡Œï¼Œä½†æ²¡æœ‰ä»»ä½•ä¸‹ä¸€ä¸ªç§»åŠ¨
+                current_opt.score = eval_curr - 500000LL;
             }
-            else if (combined_score == best_eval_score)
-            {
-                if (current_rotation < *best_rot)
-                {
-                    *best_rot = current_rotation;
-                    *best_x = x_col;
-                }
-                else if (current_rotation == *best_rot && abs(x_col + piece->width / 2 - COLS / 2) < abs(*best_x + pieces[current_piece][*best_rot].width / 2 - COLS / 2))
-                {
-                    *best_x = x_col;
-                }
+
+            if (num_candidate_moves < 4 * COLS) { // ç¡®ä¿ä¸è¶…å‡ºæ•°ç»„èŒƒå›´
+                candidate_moves[num_candidate_moves++] = current_opt;
             }
         }
     }
 
-    if (!found_any_move)
-    {
-        *best_rot = DEG_0;
-        *best_x = 0;
-        if (pieces[current_piece][DEG_0].width <= COLS)
-            *best_x = 0;
-        else
-            *best_x = COLS - pieces[current_piece][DEG_0].width;
-        if (*best_x < 0)
-            *best_x = 0;
+    if (num_candidate_moves == 0) { // æ²¡æœ‰æ‰¾åˆ°ä»»ä½•æœ‰æ•ˆç§»åŠ¨ï¼ˆä¾‹å¦‚ï¼Œèµ·å§‹æ—¶æ£‹ç›˜å®Œå…¨è¢«å µä½ï¼‰
+        *selected_rotation = DEG_0;
+        const Piece *def_p = &pieces[current_p][DEG_0];
+        *selected_x_col = (def_p->width <= COLS) ? (COLS - def_p->width) / 2 : 0;
+        if (*selected_x_col < 0) *selected_x_col = 0;
+        return;
+    }
+
+    // æ’åºç§»åŠ¨ä»¥æ‰¾åˆ°æœ€ä½³çš„ä¸€ä¸ªï¼Œæ ¹æ®è¯„åˆ†å’Œç ´å±€è§„åˆ™
+    long long final_best_score = LLONG_MIN;
+    int best_idx = -1;
+
+    for(int i=0; i < num_candidate_moves; ++i) {
+        if (i == 0 || candidate_moves[i].score > final_best_score) {
+            final_best_score = candidate_moves[i].score;
+            *selected_rotation = candidate_moves[i].rot;
+            *selected_x_col = candidate_moves[i].x;
+            best_idx = i;
+        } else if (candidate_moves[i].score == final_best_score) {
+            if (candidate_moves[i].rot < *selected_rotation) {
+                *selected_rotation = candidate_moves[i].rot;
+                *selected_x_col = candidate_moves[i].x;
+                best_idx = i;
+            } else if (candidate_moves[i].rot == *selected_rotation) {
+                const Piece *p_shape_cand = &pieces[current_p][candidate_moves[i].rot];
+                const Piece *p_shape_best = &pieces[current_p][*selected_rotation];
+                int cand_dist = abs(candidate_moves[i].x + p_shape_cand->width / 2 - COLS / 2);
+                int best_dist = abs(*selected_x_col + p_shape_best->width / 2 - COLS / 2);
+                if (cand_dist < best_dist) {
+                    *selected_x_col = candidate_moves[i].x;
+                    best_idx = i;
+                }
+            }
+        }
+    }
+    if (best_idx == -1 && num_candidate_moves > 0) { // å¦‚æœæ²¡æœ‰è®¾ç½®æœ€ä½³ç´¢å¼•ä½†å­˜åœ¨ç§»åŠ¨ï¼Œåˆ™å›é€€
+        *selected_rotation = candidate_moves[0].rot;
+        *selected_x_col = candidate_moves[0].x;
     }
 }

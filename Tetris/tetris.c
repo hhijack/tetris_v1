@@ -1,10 +1,11 @@
+#include <stdio.h>
 #include <string.h>
 #include "tetris.h"
 
 Piece pieces[MAX_PIECES][4]; // 实际定义全局变量
 
-// 初始化所有方块的旋转状态 (修正了 I 型方块宽高赋值的错误)
-void init_pieces()
+//初始化方块
+void init_pieces_definitions()
 {
     // I 型方块
     // 0度: 1111 (宽4, 高1)
