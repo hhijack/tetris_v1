@@ -34,7 +34,7 @@
 - 通过评估当前和下一回合状态选择最优操作
 - 主要决策函数：
     - `select_best_action` - 选择最佳放置策略
-    - `suicide_place_piece` - 超时时的应急放置策略
+    - `suicide_place_piece` - 自杀策略防止超时
 
 ### 评估体系
 使用多维度地形指标计算状态评分：
