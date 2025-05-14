@@ -4,7 +4,7 @@
 #include <limits.h>
 #include <time.h>
 
-#define ROWS 20
+#define ROWS 15
 #define COLS 10
 #define MAX_PIECES 7
 
